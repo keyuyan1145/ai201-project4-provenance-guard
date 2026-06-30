@@ -80,7 +80,8 @@ def test_audit_entry_has_all_required_fields(client):
     client.post(SUBMIT_URL, json=VALID_BODY)
     entry = client.get(LOG_URL).get_json()["entries"][0]
     for field in ("event_type", "content_id", "creator_id", "timestamp",
-                  "attribution", "confidence", "heuristic_score", "llm_score", "status"):
+                  "attribution", "confidence", "heuristic_score", "llm_score",
+                  "agreement_score", "status"):
         assert field in entry, f"Audit entry missing field: {field}"
 
 

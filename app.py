@@ -68,6 +68,7 @@ def submit():
     # --- Classifier ---
     classifier_result = classify(heuristic_score, llm_score)
     weighted_score = classifier_result["weighted_score"]
+    signal_agreement = classifier_result["signal_agreement"]
     final_confidence_score = classifier_result["final_confidence_score"]
     llm_signal_available = classifier_result["llm_signal_available"]
 
@@ -108,6 +109,7 @@ def submit():
         "confidence": final_confidence_score,
         "heuristic_score": heuristic_score,
         "llm_score": llm_score,
+        "agreement_score": signal_agreement,
         "status": "classified",
     })
     print(f"[INFO] Submission {label_id} persisted to audit log")
@@ -121,6 +123,7 @@ def submit():
         "label": label,
         "llm_score": llm_score,
         "heuristic_score": heuristic_score,
+        "agreement_score": signal_agreement,
     }), 200
 
 

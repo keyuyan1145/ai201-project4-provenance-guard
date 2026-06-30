@@ -255,8 +255,9 @@ Client
                                ▼
                       ┌─────────────────────────────────────────────────────┐
                       │  JSON Response                                       │
-                      │  {label_id, weighted_score, final_confidence_score,  │
-                      │   label, llm_score, heuristic_score}                 │
+                      │  {label_id, content_id, weighted_score,               │
+                      │   final_confidence_score, attribution, label,         │
+                      │   llm_score, heuristic_score, agreement_score}        │
                       └─────────────────────────────────────────────────────┘
 ```
 
@@ -489,26 +490,26 @@ Written immediately after every successful `POST /submit` response.
 ```json
 {
   "event_type": "classification",
-  "submission_id": "uuid-string",
+  "content_id": "uuid-string",
   "creator_id": "string",
+  "timestamp": "2024-01-15T10:30:00.123Z",
+  "attribution": "uncertain",
+  "confidence": 0.487,
   "heuristic_score": 0.72,
   "llm_score": 0.78,
-  "llm_signal_available": true,
-  "weighted_score": 0.759,
-  "signal_agreement": 0.94,
-  "raw_confidence": 0.518,
-  "final_confidence_score": 0.487,
-  "label_variant": "uncertain",
-  "created_at": "2024-01-15T10:30:00Z"
+  "agreement_score": 0.94,
+  "status": "classified"
 }
 ```
 
 **Field notes:**
-- `submission_id` is the same UUID returned to the user as `label_id` in the API response — the link between the API receipt and the audit log entry
-- `creator_id` is stored for traceability during appeals; it is not returned in the API response (platform maps it internally)
-- `llm_signal_available: false` when the LLM was skipped by the cost gate OR all retries failed
-- `llm_score` is `null` when `llm_signal_available` is `false`
-- All four computed classifier fields are stored for complete post-hoc reproducibility
+- `content_id` is the same UUID returned to the user as `label_id` / `content_id` in the API response — the link between the API receipt and the audit log entry
+- `creator_id` is stored for traceability during appeals; it is not returned in the API response
+- `attribution` is the label variant assigned: `high_confidence_ai`, `high_confidence_human`, or `uncertain`
+- `confidence` is `final_confidence_score` — the calibrated certainty value after signal weighting
+- `agreement_score` is `1 − |llm_score − heuristic_score|` — how closely the two signals corroborate each other; `null` in single-signal mode (LLM skipped or unavailable)
+- `llm_score` is `null` when the LLM was skipped by the cost gate or all retries failed
+- `timestamp` is ISO 8601 UTC with millisecond precision: `YYYY-MM-DDTHH:MM:SS.mmmZ`
 
 ### Appeal entry
 

@@ -9,7 +9,7 @@ SUBMIT_URL = "/submit"
 
 EXPECTED_FIELDS = {
     "label_id", "content_id", "weighted_score", "final_confidence_score",
-    "attribution", "label", "llm_score", "heuristic_score",
+    "attribution", "label", "llm_score", "heuristic_score", "agreement_score",
 }
 
 # Texts long enough to avoid the short-text cap (> MIN_TEXT_LENGTH=80 words)
