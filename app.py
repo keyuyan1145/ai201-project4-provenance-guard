@@ -1,4 +1,5 @@
 import uuid
+from datetime import datetime, timezone
 
 from dotenv import load_dotenv
 from flask import Flask, jsonify, request
@@ -6,6 +7,7 @@ from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
 
 import config
+from audit import get_log, write_log_entry
 from pipeline.heuristic_signal import compute_heuristic_score
 
 load_dotenv()
@@ -58,7 +60,6 @@ def submit():
     llm_score = None
 
     # --- Classifier (single-signal mode) ---
-    # weighted_score = heuristic_score when LLM unavailable
     weighted_score = heuristic_score
     raw_confidence = 2 * abs(weighted_score - 0.5)
     final_confidence_score = round(raw_confidence * config.SINGLE_SIGNAL_MULTIPLIER, 4)
@@ -80,16 +81,42 @@ def submit():
         f" weighted_score={weighted_score:.3f}, final_confidence={final_confidence_score:.3f}"
     )
 
+    # --- Audit log ---
+    now = datetime.now(timezone.utc)
+    ms = now.microsecond // 1000
+    timestamp = now.strftime("%Y-%m-%dT%H:%M:%S.") + f"{ms:03d}Z"
+
+    write_log_entry({
+        "event_type": "classification",
+        "content_id": label_id,
+        "creator_id": creator_id,
+        "timestamp": timestamp,
+        "attribution": label,
+        "confidence": final_confidence_score,
+        "heuristic_score": heuristic_score,
+        "llm_score": llm_score,
+        "status": "classified",
+    })
+    print(f"[INFO] Submission {label_id} persisted to audit log")
+
     return jsonify({
         "label_id": label_id,
-        "content_id": label_id,           # rubric alias — same UUID, different name
+        "content_id": label_id,
         "weighted_score": weighted_score,
         "final_confidence_score": final_confidence_score,
-        "attribution": final_confidence_score,  # rubric requirement; mirrors final_confidence_score
+        "attribution": final_confidence_score,
         "label": label,
         "llm_score": llm_score,
         "heuristic_score": heuristic_score,
     }), 200
+
+
+@app.route("/log", methods=["GET"])
+def log():
+    limit = request.args.get("limit", default=20, type=int)
+    event_type = request.args.get("event_type", default=None)
+    entries = get_log(limit=limit, event_type=event_type)
+    return jsonify({"entries": entries, "total": len(entries)}), 200
 
 
 if __name__ == "__main__":

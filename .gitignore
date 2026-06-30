@@ -3,3 +3,4 @@
 .claude
 __pycache__/
 tests/__pycache__/
+pipeline/__pycache__/
