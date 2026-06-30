@@ -14,7 +14,7 @@ from audit import write_log_entry
 SUBMIT_URL = "/submit"
 LOG_URL = "/log"
 
-VALID_BODY = {"content": "This is some sample text for testing the audit log.", "creator_id": "user-99"}
+VALID_BODY = {"text": "This is some sample text for testing the audit log.", "creator_id": "user-99"}
 
 
 @pytest.fixture
@@ -98,7 +98,7 @@ def test_audit_entry_content_id_matches_submit_response(client):
 
 
 def test_audit_entry_creator_id_matches_request(client):
-    client.post(SUBMIT_URL, json={"content": "Some text here for testing.", "creator_id": "alice"})
+    client.post(SUBMIT_URL, json={"text": "Some text here for testing.", "creator_id": "alice"})
     entry = client.get(LOG_URL).get_json()["entries"][0]
     assert entry["creator_id"] == "alice"
 
@@ -145,8 +145,8 @@ def test_audit_entry_timestamp_format(client):
 
 
 def test_audit_entries_for_different_creators_are_independent(client):
-    client.post(SUBMIT_URL, json={"content": "Some text for alice.", "creator_id": "alice"})
-    client.post(SUBMIT_URL, json={"content": "Some text for bob.", "creator_id": "bob"})
+    client.post(SUBMIT_URL, json={"text": "Some text for alice.", "creator_id": "alice"})
+    client.post(SUBMIT_URL, json={"text": "Some text for bob.", "creator_id": "bob"})
     entries = client.get(LOG_URL).get_json()["entries"]
     creator_ids = {e["creator_id"] for e in entries}
     assert creator_ids == {"alice", "bob"}
@@ -166,9 +166,9 @@ def test_get_log_limit_param_restricts_results(client):
 
 def test_get_log_limit_returns_most_recent_entries(client):
     bodies = [
-        {"content": "First submission text here.", "creator_id": "u-1"},
-        {"content": "Second submission text here.", "creator_id": "u-2"},
-        {"content": "Third submission text here.", "creator_id": "u-3"},
+        {"text": "First submission text here.", "creator_id": "u-1"},
+        {"text": "Second submission text here.", "creator_id": "u-2"},
+        {"text": "Third submission text here.", "creator_id": "u-3"},
     ]
     for b in bodies:
         client.post(SUBMIT_URL, json=b)

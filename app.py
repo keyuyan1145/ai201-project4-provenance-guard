@@ -33,12 +33,12 @@ def submit():
         print("[WARN] POST /submit: request body is missing or not valid JSON")
         return jsonify({"error": "Request body must be valid JSON"}), 400
 
-    content = body.get("content")
+    content = body.get("text")
     creator_id = body.get("creator_id")
 
     if not isinstance(content, str) or not content.strip():
-        print("[WARN] POST /submit: missing or empty 'content' field")
-        return jsonify({"error": "Missing required field: content"}), 400
+        print("[WARN] POST /submit: missing or empty 'text' field")
+        return jsonify({"error": "Missing required field: text"}), 400
 
     if not isinstance(creator_id, str) or not creator_id.strip():
         print("[WARN] POST /submit: missing or empty 'creator_id' field")

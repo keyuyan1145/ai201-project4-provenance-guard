@@ -4,7 +4,7 @@ import pytest
 
 from app import app as flask_app, limiter
 
-VALID_BODY = {"content": "This is some sample text for testing.", "creator_id": "user-123"}
+VALID_BODY = {"text": "This is some sample text for testing.", "creator_id": "user-123"}
 SUBMIT_URL = "/submit"
 
 EXPECTED_FIELDS = {
@@ -117,21 +117,21 @@ def test_each_submission_gets_unique_label_id(client):
 # ---------------------------------------------------------------------------
 
 def test_heuristic_score_is_higher_for_ai_text_than_human_text(client):
-    ai_score = post_json(client, {"content": _AI_TEXT, "creator_id": "u1"}).get_json()["heuristic_score"]
-    human_score = post_json(client, {"content": _HUMAN_TEXT, "creator_id": "u2"}).get_json()["heuristic_score"]
+    ai_score = post_json(client, {"text": _AI_TEXT, "creator_id": "u1"}).get_json()["heuristic_score"]
+    human_score = post_json(client, {"text": _HUMAN_TEXT, "creator_id": "u2"}).get_json()["heuristic_score"]
     assert ai_score > human_score
 
 
 def test_heuristic_score_is_not_hardcoded(client):
     # Two different texts should produce different heuristic scores
-    score1 = post_json(client, {"content": _AI_TEXT, "creator_id": "u1"}).get_json()["heuristic_score"]
-    score2 = post_json(client, {"content": _HUMAN_TEXT, "creator_id": "u2"}).get_json()["heuristic_score"]
+    score1 = post_json(client, {"text": _AI_TEXT, "creator_id": "u1"}).get_json()["heuristic_score"]
+    score2 = post_json(client, {"text": _HUMAN_TEXT, "creator_id": "u2"}).get_json()["heuristic_score"]
     assert score1 != score2
 
 
 def test_weighted_score_equals_heuristic_score_without_llm(client):
     # In single-signal mode weighted_score must mirror heuristic_score exactly
-    data = post_json(client, {"content": _AI_TEXT, "creator_id": "u1"}).get_json()
+    data = post_json(client, {"text": _AI_TEXT, "creator_id": "u1"}).get_json()
     assert data["weighted_score"] == data["heuristic_score"]
 
 
@@ -139,7 +139,7 @@ def test_final_confidence_score_is_derived_from_heuristic(client):
     # final_confidence_score = raw_confidence * SINGLE_SIGNAL_MULTIPLIER
     # raw_confidence = 2 * |weighted_score - 0.5|
     import config
-    data = post_json(client, {"content": _AI_TEXT, "creator_id": "u1"}).get_json()
+    data = post_json(client, {"text": _AI_TEXT, "creator_id": "u1"}).get_json()
     ws = data["weighted_score"]
     expected_fc = round(2 * abs(ws - 0.5) * config.SINGLE_SIGNAL_MULTIPLIER, 4)
     assert data["final_confidence_score"] == expected_fc
@@ -155,47 +155,47 @@ def test_missing_content_returns_400(client):
 
 
 def test_missing_creator_id_returns_400(client):
-    res = post_json(client, {"content": "Some text."})
+    res = post_json(client, {"text": "Some text."})
     assert res.status_code == 400
 
 
 def test_empty_content_string_returns_400(client):
-    res = post_json(client, {"content": "", "creator_id": "user-123"})
+    res = post_json(client, {"text": "", "creator_id": "user-123"})
     assert res.status_code == 400
 
 
 def test_whitespace_only_content_returns_400(client):
-    res = post_json(client, {"content": "   \t\n", "creator_id": "user-123"})
+    res = post_json(client, {"text": "   \t\n", "creator_id": "user-123"})
     assert res.status_code == 400
 
 
 def test_empty_creator_id_string_returns_400(client):
-    res = post_json(client, {"content": "Some text.", "creator_id": ""})
+    res = post_json(client, {"text": "Some text.", "creator_id": ""})
     assert res.status_code == 400
 
 
 def test_whitespace_only_creator_id_returns_400(client):
-    res = post_json(client, {"content": "Some text.", "creator_id": "   "})
+    res = post_json(client, {"text": "Some text.", "creator_id": "   "})
     assert res.status_code == 400
 
 
 def test_null_content_returns_400(client):
-    res = post_json(client, {"content": None, "creator_id": "user-123"})
+    res = post_json(client, {"text": None, "creator_id": "user-123"})
     assert res.status_code == 400
 
 
 def test_null_creator_id_returns_400(client):
-    res = post_json(client, {"content": "Some text.", "creator_id": None})
+    res = post_json(client, {"text": "Some text.", "creator_id": None})
     assert res.status_code == 400
 
 
 def test_non_string_content_returns_400(client):
-    res = post_json(client, {"content": 42, "creator_id": "user-123"})
+    res = post_json(client, {"text": 42, "creator_id": "user-123"})
     assert res.status_code == 400
 
 
 def test_non_string_creator_id_returns_400(client):
-    res = post_json(client, {"content": "Some text.", "creator_id": 99})
+    res = post_json(client, {"text": "Some text.", "creator_id": 99})
     assert res.status_code == 400
 
 
