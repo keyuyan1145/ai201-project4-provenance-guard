@@ -1,5 +1,6 @@
 import re
 import statistics
+import unicodedata
 from concurrent.futures import ThreadPoolExecutor
 
 import config
@@ -9,25 +10,40 @@ import config
 # ---------------------------------------------------------------------------
 
 _AI_WORDS = {
+    # Classic GPT/LLM vocabulary markers
     "delve", "certainly", "straightforward", "robust", "seamless", "nuanced",
     "comprehensive", "leverage", "crucial", "notably", "invaluable", "pivotal",
+    # Extended markers seen frequently in AI-generated prose
+    "essential", "transformative", "ethical", "ensure", "responsible",
+    "stakeholders", "innovative", "facilitate", "utilize", "demonstrate",
+    "paramount", "imperative", "underscore", "encompass", "foster",
 }
 
 _AI_PHRASES = [
     "it is worth noting",
-    "in conclusion",
+    "it is important to",      # catches both "it is important to note" and "it's" form
     "it's important to",
+    "it is essential to",
+    "it is crucial to",
+    "in conclusion",
     "in today's",
     "of course",
+    "ensure that",
+    "it is worth emphasizing",
 ]
 
-# Checked at sentence-start position only
-_AI_STARTERS = {"moreover", "furthermore", "additionally"}
+# Checked at sentence-start position only (punctuation stripped before match)
+_AI_STARTERS = {"moreover", "furthermore", "additionally", "importantly"}
 
-# Full sentence openers (different list — these are the structural signposting words)
+# Full sentence openers — also includes the _AI_STARTERS so structural_openers
+# sub-score fires on "Furthermore,..." style sentences
 _STRUCTURAL_OPENERS = {
     "however",
     "therefore",
+    "moreover",
+    "furthermore",
+    "additionally",
+    "importantly",
     "in addition",
     "as a result",
     "for example",
@@ -35,6 +51,18 @@ _STRUCTURAL_OPENERS = {
     "overall",
     "to summarize",
 }
+
+
+def _normalize_text(text: str) -> str:
+    """Normalize text before heuristic scoring.
+
+    Applies NFKC unicode normalization (resolves ligatures and compatibility
+    characters), normalizes line endings, and collapses runs of whitespace to
+    a single space so all sub-features operate on a clean, consistent string.
+    """
+    text = unicodedata.normalize("NFKC", text)
+    text = re.sub(r"\s+", " ", text)
+    return text.strip()
 
 
 def _tokenize_sentences(text: str) -> list:
@@ -63,8 +91,10 @@ def _score_vocab_marker_density(text: str) -> float:
     starter_hits = 0
     for sentence in sentences:
         parts = sentence.lower().strip().split()
-        if parts and parts[0] in _AI_STARTERS:
-            starter_hits += 1
+        if parts:
+            first_word = re.sub(r"[^a-z]", "", parts[0])
+            if first_word in _AI_STARTERS:
+                starter_hits += 1
 
     total = word_hits + phrase_hits + starter_hits
     density = (total / len(words)) * 100  # markers per 100 words
@@ -138,6 +168,7 @@ def compute_heuristic_score(text: str) -> dict:
             "is_short_text": bool,         # True when below MIN_TEXT_LENGTH
         }
     """
+    text = _normalize_text(text)
     word_count = len(text.split())
     is_short = word_count < config.MIN_TEXT_LENGTH
 

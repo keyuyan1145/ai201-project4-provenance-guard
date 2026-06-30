@@ -8,7 +8,9 @@ from flask_limiter.util import get_remote_address
 
 import config
 from audit import get_log, write_log_entry
+from pipeline.classifier import classify
 from pipeline.heuristic_signal import compute_heuristic_score
+from pipeline.llm_signal import compute_llm_score
 
 load_dotenv()
 
@@ -50,26 +52,35 @@ def submit():
     heuristic_score = heuristic_result["heuristic_score"]
 
     # --- Cost gate ---
-    if heuristic_score < config.HEURISTIC_GATE_THRESHOLD:
+    llm_attempted = heuristic_score >= config.HEURISTIC_GATE_THRESHOLD
+    if not llm_attempted:
         print(
             f"[INFO] Gate: heuristic_score={heuristic_score:.3f} < "
             f"{config.HEURISTIC_GATE_THRESHOLD} — LLM call skipped"
         )
+        llm_score = None
+    else:
+        # --- Signal 2: LLM Semantic Classifier ---
+        llm_score = compute_llm_score(content)
+        if llm_score is None:
+            print("[INFO] LLM signal unavailable after all retries — single-signal fallback")
 
-    # --- Signal 2: LLM (not yet implemented — wired in M4) ---
-    llm_score = None
-
-    # --- Classifier (single-signal mode) ---
-    weighted_score = heuristic_score
-    raw_confidence = 2 * abs(weighted_score - 0.5)
-    final_confidence_score = round(raw_confidence * config.SINGLE_SIGNAL_MULTIPLIER, 4)
-    print(
-        f"[INFO] Classifier: single-signal mode (llm_signal_available=False);"
-        f" applying {config.SINGLE_SIGNAL_MULTIPLIER}x confidence penalty"
-    )
+    # --- Classifier ---
+    classifier_result = classify(heuristic_score, llm_score)
+    weighted_score = classifier_result["weighted_score"]
+    final_confidence_score = classifier_result["final_confidence_score"]
+    llm_signal_available = classifier_result["llm_signal_available"]
 
     # --- Label assignment ---
-    if weighted_score >= config.AI_SCORE_THRESHOLD and final_confidence_score >= config.CONFIDENCE_THRESHOLD:
+    if not llm_attempted:
+        # Gate closed: heuristic score below threshold is sufficient evidence of human authorship
+        label = "high_confidence_human"
+        print(f"[INFO] Gate closed (heuristic_score={heuristic_score:.3f}) — label forced to 'high_confidence_human'")
+    elif llm_attempted and llm_score is None:
+        # LLM was called but all retries failed — insufficient evidence for definitive label
+        label = "uncertain"
+        print("[INFO] LLM retries exhausted — label forced to 'uncertain'")
+    elif weighted_score >= config.AI_SCORE_THRESHOLD and final_confidence_score >= config.CONFIDENCE_THRESHOLD:
         label = "high_confidence_ai"
     elif weighted_score <= config.HUMAN_SCORE_THRESHOLD and final_confidence_score >= config.CONFIDENCE_THRESHOLD:
         label = "high_confidence_human"
@@ -78,7 +89,9 @@ def submit():
 
     print(
         f"[INFO] Label assigned: variant={label},"
-        f" weighted_score={weighted_score:.3f}, final_confidence={final_confidence_score:.3f}"
+        f" weighted_score={weighted_score:.3f},"
+        f" final_confidence={final_confidence_score:.3f},"
+        f" llm_signal_available={llm_signal_available}"
     )
 
     # --- Audit log ---

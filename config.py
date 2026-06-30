@@ -3,10 +3,10 @@ LLM_MAX_RETRIES = 3
 LLM_RETRY_BASE_DELAY = 1.0  # seconds; each retry waits base * (2 ** attempt)
 
 # Text length gate — heuristic sub-scores capped at 0.5 below this word count
-MIN_TEXT_LENGTH = 80
+MIN_TEXT_LENGTH = 20
 
 # Cost gate — heuristic_score below this skips the LLM call entirely
-HEURISTIC_GATE_THRESHOLD = 0.25
+HEURISTIC_GATE_THRESHOLD = 0.15
 
 # Confidence thresholds for label assignment
 CONFIDENCE_THRESHOLD = 0.70     # minimum final_confidence_score for a definitive label
