@@ -123,7 +123,8 @@ No automated re-classification occurs. A human reviewer (or future automated ste
 **Request body:**
 ```json
 {
-  "content": "string (required) — the text to classify"
+  "content": "string (required) — the text to classify",
+  "creator_id": "string (required) — opaque platform-assigned identifier for the submitting user"
 }
 ```
 
@@ -140,7 +141,7 @@ No automated re-classification occurs. A human reviewer (or future automated ste
 ```
 
 **Error responses:**
-- `400` — missing or empty `content` field
+- `400` — missing or empty `content` or `creator_id` field
 - `429` — rate limit exceeded (includes `Retry-After` header)
 - `500` — Groq API unreachable or returned an unexpected response
 
@@ -189,13 +190,19 @@ No automated re-classification occurs. A human reviewer (or future automated ste
 {
   "entries": [
     {
-      "id": "uuid-string",
-      "content_id": "uuid-string",
+      "event_id": "uuid-string",
       "event_type": "classification",
-      "signals": { "llm": 0.78, "heuristic": 0.72 },
-      "attribution": 0.76,
-      "confidence": 0.49,
-      "metadata": { "label_variant": "uncertain" },
+      "submission_id": "uuid-string",
+      "creator_id": "string",
+      "llm_score": 0.78,
+      "heuristic_score": 0.72,
+      "llm_signal_available": true,
+      "weighted_score": 0.76,
+      "signal_agreement": 0.94,
+      "raw_confidence": 0.52,
+      "final_confidence_score": 0.49,
+      "label_variant": "uncertain",
+      "label": "The origin of this content is unclear...",
       "created_at": "2026-06-30T14:23:01Z"
     }
   ],
