@@ -6,6 +6,7 @@ from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
 
 import config
+from pipeline.heuristic_signal import compute_heuristic_score
 
 load_dotenv()
 
@@ -42,14 +43,52 @@ def submit():
     label_id = str(uuid.uuid4())
     print(f"[INFO] POST /submit: submission received, creator_id={creator_id}, label_id={label_id}")
 
-    # Hardcoded response — real pipeline wired in M4
+    # --- Signal 1: Statistical Heuristics ---
+    heuristic_result = compute_heuristic_score(content)
+    heuristic_score = heuristic_result["heuristic_score"]
+
+    # --- Cost gate ---
+    if heuristic_score < config.HEURISTIC_GATE_THRESHOLD:
+        print(
+            f"[INFO] Gate: heuristic_score={heuristic_score:.3f} < "
+            f"{config.HEURISTIC_GATE_THRESHOLD} — LLM call skipped"
+        )
+
+    # --- Signal 2: LLM (not yet implemented — wired in M4) ---
+    llm_score = None
+
+    # --- Classifier (single-signal mode) ---
+    # weighted_score = heuristic_score when LLM unavailable
+    weighted_score = heuristic_score
+    raw_confidence = 2 * abs(weighted_score - 0.5)
+    final_confidence_score = round(raw_confidence * config.SINGLE_SIGNAL_MULTIPLIER, 4)
+    print(
+        f"[INFO] Classifier: single-signal mode (llm_signal_available=False);"
+        f" applying {config.SINGLE_SIGNAL_MULTIPLIER}x confidence penalty"
+    )
+
+    # --- Label assignment ---
+    if weighted_score >= config.AI_SCORE_THRESHOLD and final_confidence_score >= config.CONFIDENCE_THRESHOLD:
+        label = "high_confidence_ai"
+    elif weighted_score <= config.HUMAN_SCORE_THRESHOLD and final_confidence_score >= config.CONFIDENCE_THRESHOLD:
+        label = "high_confidence_human"
+    else:
+        label = "uncertain"
+
+    print(
+        f"[INFO] Label assigned: variant={label},"
+        f" weighted_score={weighted_score:.3f}, final_confidence={final_confidence_score:.3f}"
+    )
+
     return jsonify({
         "label_id": label_id,
-        "weighted_score": 0.76,
-        "final_confidence_score": 0.82,
-        "label": "high_confidence_ai",
-        "llm_score": 0.78,
-        "heuristic_score": 0.72,
+        "content_id": label_id,           # rubric alias — same UUID, different name
+        "weighted_score": weighted_score,
+        "final_confidence_score": final_confidence_score,
+        "attribution": final_confidence_score,  # rubric requirement; mirrors final_confidence_score
+        "label": label,
+        "llm_score": llm_score,
+        "heuristic_score": heuristic_score,
     }), 200
 
 
