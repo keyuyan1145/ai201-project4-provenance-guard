@@ -17,7 +17,7 @@ HUMAN_SCORE_THRESHOLD = 0.35    # weighted_score <= this → human zone
 SINGLE_SIGNAL_MULTIPLIER = 0.75
 
 # Per-IP rate limit on POST /submit
-RATE_LIMIT = "10 per minute"
+RATE_LIMIT = "10 per minute;100 per day"
 
 # Flat-file persistence paths
 SUBMISSIONS_FILE = "data/submissions.jsonl"
