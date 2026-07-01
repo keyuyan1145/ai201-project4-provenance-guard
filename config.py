@@ -19,6 +19,5 @@ SINGLE_SIGNAL_MULTIPLIER = 0.75
 # Per-IP rate limit on POST /submit
 RATE_LIMIT = "10 per minute;100 per day"
 
-# Flat-file persistence paths
-SUBMISSIONS_FILE = "data/submissions.jsonl"
+# Flat-file persistence path
 AUDIT_LOG_FILE = "data/audit_log.jsonl"

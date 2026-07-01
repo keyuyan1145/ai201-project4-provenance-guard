@@ -109,6 +109,7 @@ def submit():
         "content_id": label_id,
         "creator_id": creator_id,
         "timestamp": timestamp,
+        "text": content,
         "attribution": label,
         "confidence": final_confidence_score,
         "heuristic_score": heuristic_score,

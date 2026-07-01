@@ -79,7 +79,7 @@ def test_submit_writes_one_entry_per_call(client):
 def test_audit_entry_has_all_required_fields(client):
     client.post(SUBMIT_URL, json=VALID_BODY)
     entry = client.get(LOG_URL).get_json()["entries"][0]
-    for field in ("event_type", "content_id", "creator_id", "timestamp",
+    for field in ("event_type", "content_id", "creator_id", "timestamp", "text",
                   "attribution", "confidence", "heuristic_score", "llm_score",
                   "agreement_score", "status"):
         assert field in entry, f"Audit entry missing field: {field}"
@@ -128,6 +128,13 @@ def test_audit_entry_heuristic_score_is_float_in_range(client):
     entry = client.get(LOG_URL).get_json()["entries"][0]
     assert isinstance(entry["heuristic_score"], float)
     assert 0.0 <= entry["heuristic_score"] <= 1.0
+
+
+def test_audit_entry_text_matches_submitted_content(client):
+    submitted_text = "Unique text for round-trip verification in the audit log."
+    client.post(SUBMIT_URL, json={"text": submitted_text, "creator_id": "verify-user"})
+    entry = client.get(LOG_URL).get_json()["entries"][0]
+    assert entry["text"] == submitted_text
 
 
 def test_audit_entry_llm_score_is_null_in_single_signal_mode(client):
