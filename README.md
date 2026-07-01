@@ -1,4 +1,4 @@
-# Provenance Guard
+# Provenance Guard [(High-Level Demo)](https://drive.google.com/file/d/1oUvyudmdB027QBWFAHNsLNmHaEanoIJ0/view?usp=sharing)
 
 A Flask-based backend that classifies submitted text as AI-generated or human-written using a two-signal detection pipeline. Returns a confidence-scored transparency label and maintains a full audit log with creator appeal support.
 
