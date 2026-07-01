@@ -16,6 +16,123 @@ flask run
 
 ---
 
+## Architecture
+
+### Submission Flow
+
+```
+Client
+  │
+  │  POST /submit  {"text": "...", "creator_id": "..."}
+  ▼
+┌─────────────────┐
+│  Rate Limiter   │──── over limit ──────────────────────► 429 Response
+└────────┬────────┘
+         │ request allowed
+         ▼
+┌──────────────────────┐
+│  Request Validator   │──── missing text/creator_id ─────► 400 Response
+└──────────┬───────────┘
+           │ text: str, creator_id: str, label_id: UUID
+           ▼
+┌──────────────────────────────────────────────────────┐
+│  Signal 1: Heuristics (4 sub-features, parallel)     │
+│  [vocab_marker_density  30%]                         │
+│  [structural_opener_patterns  25%]                   │
+│  [specificity_density  30%]                          │
+│  [sentence_length_uniformity  15%]                   │
+└──────────────────┬───────────────────────────────────┘
+                   │ heuristic_score: float
+                   ▼
+         ┌─────────────────────┐
+         │  Two-sided Gate     │
+         └──┬──────────────┬───┘
+    score < 0.15           score > 0.85        0.15 ≤ score ≤ 0.85
+    (human gate)           (AI gate)           │
+    llm_score = null       llm_score = null    ▼
+         │                      │    ┌───────────────────────────┐
+         │                      │    │  Signal 2: LLM Classifier │
+         │                      │    │  (Groq API, retry ×3)     │
+         │                      │    └──────────────┬────────────┘
+         │                      │         success   │   all retries fail
+         │                      │     llm_score:    │   llm_score = null
+         │                      │     float         │
+         └──────────────────────┴───────────────────┘
+                                │
+                                ▼
+                    ┌───────────────────────────┐
+                    │  Classifier               │
+                    │  adaptive weighted blend  │
+                    │  → weighted_score         │
+                    │  → signal_agreement       │
+                    └──────────┬────────────────┘
+                               │
+                               ▼
+                    ┌──────────────────────┐
+                    │  Label Assignment    │
+                    │  lower gate closed → high_confidence_human  │
+                    │  upper gate closed → high_confidence_ai     │
+                    │  llm failed        → uncertain              │
+                    │  ws ≥ 0.70         → high_confidence_ai     │
+                    │  ws ≤ 0.30         → high_confidence_human  │
+                    │  else              → uncertain              │
+                    └──────────┬───────────┘
+                               │
+                               ▼
+                    ┌──────────────────────┐
+                    │  Audit Log Write     │
+                    │  data/audit_log.jsonl│
+                    └──────────┬───────────┘
+                               │
+                               ▼
+                    ┌────────────────────────────────────────────┐
+                    │  JSON Response                             │
+                    │  {label_id, content_id, text,             │
+                    │   weighted_score, attribution, label,      │
+                    │   label_text, llm_score, heuristic_score,  │
+                    │   agreement_score}                         │
+                    └────────────────────────────────────────────┘
+```
+
+### Appeal Flow
+
+```
+Client
+  │
+  │  POST /appeal  {"content_id": "...", "creator_reasoning": "..."}
+  ▼
+┌──────────────────────┐
+│  Request Validator   │──── missing fields ──► 400 Response
+└──────────┬───────────┘
+           │ content_id: str, creator_reasoning: str
+           ▼
+┌──────────────────────────────┐
+│  Audit Log Lookup            │──── not found ──► 404 Response
+│  (audit_log.jsonl scan)      │──── already under_review ─► 409 Response
+└──────────┬───────────────────┘
+           │ entry confirmed, status = "classified"
+           ▼
+┌──────────────────────────────┐
+│  Status Updater              │  rewrites entry: status = "under_review"
+│  (audit_log.jsonl in-place)  │
+└──────────┬───────────────────┘
+           │ appeal_id: UUID
+           ▼
+┌──────────────────────────────┐
+│  Audit Logger                │  appends appeal entry to audit_log.jsonl
+└──────────┬───────────────────┘
+           │
+           ▼
+┌──────────────────────────────────────────────────────────┐
+│  JSON Response                                           │
+│  {appeal_id, content_id, status: "under_review",         │
+│   message: "Your appeal has been received...",           │
+│   timestamp}                                             │
+└──────────────────────────────────────────────────────────┘
+```
+
+---
+
 ## API Endpoints
 
 | Method | Path | Description |
@@ -54,8 +171,8 @@ flask run
 
 | Variant | Condition |
 |---|---|
-| `high_confidence_ai` | `weighted_score ≥ 0.65`, or `heuristic_score > 0.85` (upper gate) |
-| `high_confidence_human` | `weighted_score ≤ 0.35`, or `heuristic_score < 0.15` (lower gate) |
+| `high_confidence_ai` | `weighted_score ≥ 0.70`, or `heuristic_score > 0.85` (upper gate) |
+| `high_confidence_human` | `weighted_score ≤ 0.30`, or `heuristic_score < 0.15` (lower gate) |
 | `uncertain` | Everything else (including LLM failure in gate range) |
 
 ### POST /appeal
@@ -182,7 +299,7 @@ llm_score:         0.5800   (LLM sees hedged but semi-structured argumentation)
 gap:               0.1000   (≤ 0.40 → standard 70/30 weights)
 weighted_score:    0.70 × 0.58 + 0.30 × 0.48 = 0.406 + 0.144 = 0.5500
 agreement_score:   0.9000
-label:             uncertain   (0.35 < 0.55 < 0.65)
+label:             uncertain   (0.30 < 0.55 < 0.70)
 ```
 
 This text contains personal context, specific names and dates (concrete anchors that push specificity score down), and no AI vocabulary — so heuristics lean human. The LLM sees somewhat structured argumentation and hedging language, pushing its score slightly above 0.5. The resulting `weighted_score` of 0.55 falls in the uncertain zone (0.35–0.65), which is the correct outcome: the system genuinely cannot tell.
@@ -196,12 +313,12 @@ The contrast between 0.97 and 0.55 shows the scoring produces meaningful variati
 All three label variants are returned as the `label_text` field in the `/submit` response. The confidence percentage is interpolated from `weighted_score`.
 
 ### Variant 1 — `high_confidence_ai`
-*Triggered when: `weighted_score ≥ 0.65` OR `heuristic_score > 0.85` (upper gate)*
+*Triggered when: `weighted_score ≥ 0.70` OR `heuristic_score > 0.85` (upper gate)*
 
 > "This content shows strong indicators of AI authorship. Our system analyzed the text across multiple signals and found patterns consistent with AI-generated writing (confidence: {X}%). If you are the creator and believe this is incorrect, you can submit an appeal using your submission ID."
 
 ### Variant 2 — `high_confidence_human`
-*Triggered when: `weighted_score ≤ 0.35` OR `heuristic_score < 0.15` (lower gate)*
+*Triggered when: `weighted_score ≤ 0.30` OR `heuristic_score < 0.15` (lower gate)*
 
 > "This content appears to be human-written. Our system analyzed the text across multiple signals and found no significant indicators of AI authorship (confidence: {X}%)."
 

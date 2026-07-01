@@ -11,8 +11,8 @@ HEURISTIC_AI_GATE_THRESHOLD = 0.85     # above this → high_confidence_ai, LLM 
 
 # Confidence thresholds for label assignment
 CONFIDENCE_THRESHOLD = 0.70     # minimum final_confidence_score for a definitive label
-AI_SCORE_THRESHOLD = 0.65       # weighted_score >= this → AI zone
-HUMAN_SCORE_THRESHOLD = 0.35    # weighted_score <= this → human zone
+AI_SCORE_THRESHOLD = 0.70       # weighted_score >= this → AI zone
+HUMAN_SCORE_THRESHOLD = 0.30    # weighted_score <= this → human zone
 
 # Applied to raw_confidence when llm_signal_available=False
 SINGLE_SIGNAL_MULTIPLIER = 0.75

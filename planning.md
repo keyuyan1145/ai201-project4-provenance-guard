@@ -95,7 +95,7 @@ The four heuristic sub-features primarily answer *how the text is written* — s
 
 The endpoint is also designed for short prose under 150 words. In that range the non-LLM features are less stable: with few sentences, sentence-length uniformity and structural-opener fraction are noisy; even vocabulary density and specificity have limited data. The LLM is comparatively less affected by text length. These numbers are intentionally approximate — with more labeled test data the weights can be empirically tuned.
 
-**Label assignment (updated):** `final_confidence_score` is now a direct AI probability (0–1), so labels are assigned by comparing it against `AI_SCORE_THRESHOLD` (0.65) and `HUMAN_SCORE_THRESHOLD` (0.35) alone. The separate `CONFIDENCE_THRESHOLD` (0.70) check is no longer applied in dual-signal mode.
+**Label assignment (updated):** `final_confidence_score` is now a direct AI probability (0–1), so labels are assigned by comparing it against `AI_SCORE_THRESHOLD` (0.70) and `HUMAN_SCORE_THRESHOLD` (0.30) alone. The separate `CONFIDENCE_THRESHOLD` (0.70) check is no longer applied in dual-signal mode.
 
 **Single-signal mode is unchanged.** `final_confidence_score = raw_confidence × 0.75` remains a confidence-penalised measure (not a raw probability). In practice, single-signal texts in the gate range [0.15, 0.85] always produce a `final_confidence_score` below 0.53, which falls in the `uncertain` zone — the two-sided gate handles the decisive human/AI cases at the extremes.
 
@@ -119,7 +119,7 @@ A `final_confidence_score` of 0.60 means the system has a moderate, not strong, 
 
 The 0.70 confidence threshold is a deliberate conservative choice. Setting it lower increases the risk of damning correct verdicts on borderline cases; 0.70 means both the score and signal agreement must be meaningfully strong before a definitive label is issued.
 
-The 0.65 / 0.35 weighted_score thresholds define a symmetric "uncertain zone" around the midpoint. Content scoring between 0.35 and 0.65 is treated as genuinely ambiguous regardless of confidence.
+The 0.70 / 0.30 weighted_score thresholds define an "uncertain zone" around the midpoint. Content scoring between 0.30 and 0.70 is treated as genuinely ambiguous regardless of confidence.
 
 ### Score mapping
 
@@ -134,12 +134,12 @@ Raw signal outputs (both `llm_score` and each heuristic sub-score) are already n
 The `label` field is a single plain-text string returned in the API response. The platform renders it verbatim. The confidence percentage is interpolated at generation time.
 
 ### Variant 1 — `high_confidence_ai`
-*Triggered when: `weighted_score >= 0.65` AND `final_confidence_score >= 0.70`*
+*Triggered when: `weighted_score >= 0.70` AND `final_confidence_score >= 0.70`*
 
 > "This content shows strong indicators of AI authorship. Our system analyzed the text across multiple signals and found patterns consistent with AI-generated writing (confidence: {X}%). If you are the creator and believe this is incorrect, you can submit an appeal using your submission ID."
 
 ### Variant 2 — `high_confidence_human`
-*Triggered when: `weighted_score <= 0.35` AND `final_confidence_score >= 0.70`*
+*Triggered when: `weighted_score <= 0.30` AND `final_confidence_score >= 0.70`*
 
 > "This content appears to be human-written. Our system analyzed the text across multiple signals and found no significant indicators of AI authorship (confidence: {X}%)."
 
@@ -599,8 +599,8 @@ HEURISTIC_GATE_THRESHOLD = 0.25  # heuristic_score below this skips the LLM call
 
 # Confidence thresholds for label assignment
 CONFIDENCE_THRESHOLD = 0.70      # minimum final_confidence_score for a definitive label
-AI_SCORE_THRESHOLD = 0.65        # weighted_score at or above this is the AI zone
-HUMAN_SCORE_THRESHOLD = 0.35     # weighted_score at or below this is the human zone
+AI_SCORE_THRESHOLD = 0.70        # weighted_score at or above this is the AI zone
+HUMAN_SCORE_THRESHOLD = 0.30     # weighted_score at or below this is the human zone
 
 # Single-signal confidence penalty
 SINGLE_SIGNAL_MULTIPLIER = 0.75  # applied to raw_confidence when llm_signal_available=False
