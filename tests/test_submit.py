@@ -9,7 +9,7 @@ SUBMIT_URL = "/submit"
 
 EXPECTED_FIELDS = {
     "label_id", "content_id", "weighted_score", "final_confidence_score",
-    "attribution", "label", "llm_score", "heuristic_score", "agreement_score",
+    "attribution", "label", "label_text", "llm_score", "heuristic_score", "agreement_score",
 }
 
 # Texts long enough to avoid the short-text cap (> MIN_TEXT_LENGTH=80 words)
@@ -268,3 +268,86 @@ def test_put_submit_returns_405(client):
 def test_delete_submit_returns_405(client):
     res = client.delete(SUBMIT_URL)
     assert res.status_code == 405
+
+
+# ---------------------------------------------------------------------------
+# Transparency label text — label_text field
+# ---------------------------------------------------------------------------
+
+def test_label_text_is_present_in_response(client):
+    data = post_json(client, VALID_BODY).get_json()
+    assert "label_text" in data
+
+
+def test_label_text_is_a_non_empty_string(client):
+    data = post_json(client, VALID_BODY).get_json()
+    assert isinstance(data["label_text"], str)
+    assert len(data["label_text"]) > 0
+
+
+def test_label_text_contains_confidence_percentage(client):
+    data = post_json(client, VALID_BODY).get_json()
+    pct = str(round(data["final_confidence_score"] * 100))
+    assert pct + "%" in data["label_text"]
+
+
+# ---------------------------------------------------------------------------
+# All three label variants are reachable
+# ---------------------------------------------------------------------------
+
+def _heuristic_stub(score):
+    return {"heuristic_score": score, "sub_scores": {}, "word_count": 50, "is_short_text": False}
+
+
+def test_uncertain_label_variant_is_reachable(client):
+    # Default mock: LLM=None, VALID_BODY produces a moderate heuristic score → uncertain
+    data = post_json(client, VALID_BODY).get_json()
+    assert data["label"] == "uncertain"
+    assert "unclear" in data["label_text"].lower()
+
+
+def test_high_confidence_human_label_variant_reachable_via_gate(client, monkeypatch):
+    # Heuristic score below gate threshold (0.15) → label forced to high_confidence_human
+    monkeypatch.setattr("app.compute_heuristic_score", lambda t: _heuristic_stub(0.05))
+    data = post_json(client, VALID_BODY).get_json()
+    assert data["label"] == "high_confidence_human"
+    assert "human-written" in data["label_text"].lower()
+
+
+def test_high_confidence_ai_label_variant_reachable(client, monkeypatch):
+    # Both signals at 0.95 → ws=0.95, agreement=1.0, final=0.90 → high_confidence_ai
+    monkeypatch.setattr("app.compute_heuristic_score", lambda t: _heuristic_stub(0.95))
+    monkeypatch.setattr("app.compute_llm_score", lambda t: 0.95)
+    data = post_json(client, VALID_BODY).get_json()
+    assert data["label"] == "high_confidence_ai"
+    assert "ai authorship" in data["label_text"].lower()
+
+
+def test_three_variants_produce_distinct_label_texts(client, monkeypatch):
+    uncertain_text = post_json(client, VALID_BODY).get_json()["label_text"]
+
+    monkeypatch.setattr("app.compute_heuristic_score", lambda t: _heuristic_stub(0.05))
+    human_text = post_json(client, VALID_BODY).get_json()["label_text"]
+
+    monkeypatch.setattr("app.compute_heuristic_score", lambda t: _heuristic_stub(0.95))
+    monkeypatch.setattr("app.compute_llm_score", lambda t: 0.95)
+    ai_text = post_json(client, VALID_BODY).get_json()["label_text"]
+
+    assert uncertain_text != human_text
+    assert uncertain_text != ai_text
+    assert human_text != ai_text
+
+
+def test_label_text_includes_llm_failure_note_when_llm_attempted_and_failed(client, monkeypatch):
+    # Force heuristic above gate so LLM is attempted, then LLM returns None (all retries fail)
+    monkeypatch.setattr("app.compute_heuristic_score", lambda t: _heuristic_stub(0.50))
+    monkeypatch.setattr("app.compute_llm_score", lambda t: None)
+    data = post_json(client, VALID_BODY).get_json()
+    assert "unavailable" in data["label_text"].lower()
+
+
+def test_label_text_does_not_include_llm_failure_note_when_gate_closed(client, monkeypatch):
+    # Gate closes (heuristic < 0.15) → LLM never attempted → no failure note
+    monkeypatch.setattr("app.compute_heuristic_score", lambda t: _heuristic_stub(0.05))
+    data = post_json(client, VALID_BODY).get_json()
+    assert "unavailable" not in data["label_text"].lower()

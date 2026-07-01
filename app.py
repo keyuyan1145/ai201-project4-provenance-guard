@@ -7,9 +7,10 @@ from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
 
 import config
-from audit import get_log, write_log_entry
+from audit import get_classification_entry, get_log, update_classification_entry, write_log_entry
 from pipeline.classifier import classify
 from pipeline.heuristic_signal import compute_heuristic_score
+from pipeline.labels import generate_label_text
 from pipeline.llm_signal import compute_llm_score
 
 load_dotenv()
@@ -88,6 +89,9 @@ def submit():
     else:
         label = "uncertain"
 
+    llm_failure = llm_attempted and llm_score is None
+    label_text = generate_label_text(label, final_confidence_score, llm_failure=llm_failure)
+
     print(
         f"[INFO] Label assigned: variant={label},"
         f" weighted_score={weighted_score:.3f},"
@@ -121,9 +125,72 @@ def submit():
         "final_confidence_score": final_confidence_score,
         "attribution": final_confidence_score,
         "label": label,
+        "label_text": label_text,
         "llm_score": llm_score,
         "heuristic_score": heuristic_score,
         "agreement_score": signal_agreement,
+    }), 200
+
+
+@app.route("/appeal", methods=["POST"])
+def appeals():
+    body = request.get_json(silent=True)
+
+    if body is None:
+        print("[WARN] POST /appeal: request body is missing or not valid JSON")
+        return jsonify({"error": "Request body must be valid JSON"}), 400
+
+    content_id = body.get("content_id")
+    creator_reasoning = body.get("creator_reasoning")
+
+    if not isinstance(content_id, str) or not content_id.strip():
+        print("[WARN] POST /appeal: missing or empty 'content_id' field")
+        return jsonify({"error": "Missing required field: content_id"}), 400
+
+    if not isinstance(creator_reasoning, str) or not creator_reasoning.strip():
+        print("[WARN] POST /appeal: missing or empty 'creator_reasoning' field")
+        return jsonify({"error": "Missing required field: creator_reasoning"}), 400
+
+    existing = get_classification_entry(content_id)
+    if existing is None:
+        print(f"[WARN] POST /appeal: no classification entry found for content_id={content_id}")
+        return jsonify({"error": f"No submission found with content_id: {content_id}"}), 404
+
+    if existing.get("status") == "under_review":
+        print(f"[WARN] POST /appeal: appeal already submitted for content_id={content_id}")
+        return jsonify({"error": "An appeal for this submission has already been submitted"}), 409
+
+    appeal_id = str(uuid.uuid4())
+    now = datetime.now(timezone.utc)
+    ms = now.microsecond // 1000
+    timestamp = now.strftime("%Y-%m-%dT%H:%M:%S.") + f"{ms:03d}Z"
+
+    updated = update_classification_entry(content_id, {
+        "status": "under_review",
+        "appeal_reasoning": creator_reasoning,
+    })
+
+    if not updated:
+        print(f"[ERROR] POST /appeal: failed to update audit entry for content_id={content_id}")
+        return jsonify({"error": "Failed to update submission status"}), 500
+
+    write_log_entry({
+        "event_type": "appeal",
+        "appeal_id": appeal_id,
+        "content_id": content_id,
+        "creator_reasoning": creator_reasoning,
+        "timestamp": timestamp,
+        "status": "under_review",
+    })
+
+    print(f"[INFO] Appeal {appeal_id} received for content_id={content_id}")
+
+    return jsonify({
+        "appeal_id": appeal_id,
+        "content_id": content_id,
+        "status": "under_review",
+        "message": "Your appeal has been received and is under review.",
+        "timestamp": timestamp,
     }), 200
 
 
