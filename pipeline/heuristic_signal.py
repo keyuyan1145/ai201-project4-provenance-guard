@@ -122,12 +122,32 @@ def _score_sentence_length_uniformity(text: str) -> float:
     return round(max(0.0, 1.0 - (cv / 0.5)), 4)
 
 
-def _score_punctuation_range(text: str) -> float:
-    """Narrow punctuation variety (no special chars) → high score (AI-like)."""
-    special = {"—", "–", "…", "(", ")", "!", "?", ";", ":"}
-    distinct_found = {ch for ch in text if ch in special}
-    # 0 types → 1.0;  4+ types → 0.0
-    return round(max(0.0, 1.0 - (len(distinct_found) / 4.0)), 4)
+def _score_specificity_density(text: str) -> float:
+    """Low specificity (no concrete details) → high score (AI-like).
+
+    AI text is abstract and generic. Human text contains concrete anchors:
+    numbers, percentages, proper nouns, and named entities.
+    Density = (numeric tokens + mid-sentence proper nouns) / word count.
+    Saturates at 0.10 (1 specific anchor per 10 words) → score 0.0.
+    """
+    words = text.split()
+    if not words:
+        return 0.5
+
+    numeric_hits = len(re.findall(r'\b\d+\.?\d*\s*%?\b', text))
+
+    sentences = _tokenize_sentences(text)
+    proper_noun_hits = 0
+    for sent in sentences:
+        parts = sent.split()
+        for word in parts[1:]:  # skip sentence-initial capitalized word
+            clean = re.sub(r"[^a-zA-Z]", "", word)
+            if len(clean) > 1 and clean[0].isupper() and clean.lower() not in {"i", "ai"}:
+                proper_noun_hits += 1
+
+    density = (numeric_hits + proper_noun_hits) / len(words)
+    # density=0 → 1.0 (no specifics → AI-like); density≥0.10 → 0.0 (rich specifics → human-like)
+    return round(max(0.0, 1.0 - (density / 0.10)), 4)
 
 
 def _score_structural_openers(text: str) -> float:
@@ -151,18 +171,33 @@ def _score_structural_openers(text: str) -> float:
 # Public API
 # ---------------------------------------------------------------------------
 
+_SUB_FEATURE_WEIGHTS = {
+    "vocab_marker_density": 0.30,
+    "structural_opener_patterns": 0.25,
+    "specificity_density": 0.30,
+    "sentence_length_uniformity": 0.15,
+}
+
+
 def compute_heuristic_score(text: str) -> dict:
     """
-    Run all four sub-features in parallel and return a results dict.
+    Run all four sub-features in parallel, combine via weighted average, and
+    return a results dict.
+
+    Sub-feature weights:
+        vocab_marker_density       30%
+        structural_opener_patterns 25%
+        specificity_density        30%
+        sentence_length_uniformity 15%
 
     Returns:
         {
-            "heuristic_score": float,      # average of four sub-scores
+            "heuristic_score": float,      # weighted sum of four sub-scores
             "sub_scores": {                # individual feature scores
                 "vocab_marker_density": float,
-                "sentence_length_uniformity": float,
-                "punctuation_range": float,
                 "structural_opener_patterns": float,
+                "specificity_density": float,
+                "sentence_length_uniformity": float,
             },
             "word_count": int,
             "is_short_text": bool,         # True when below MIN_TEXT_LENGTH
@@ -180,9 +215,9 @@ def compute_heuristic_score(text: str) -> dict:
 
     sub_features = [
         ("vocab_marker_density", _score_vocab_marker_density),
-        ("sentence_length_uniformity", _score_sentence_length_uniformity),
-        ("punctuation_range", _score_punctuation_range),
         ("structural_opener_patterns", _score_structural_openers),
+        ("specificity_density", _score_specificity_density),
+        ("sentence_length_uniformity", _score_sentence_length_uniformity),
     ]
 
     with ThreadPoolExecutor(max_workers=4) as executor:
@@ -197,7 +232,19 @@ def compute_heuristic_score(text: str) -> dict:
             print(f"[WARN] Heuristic sub-feature '{name}' returned {val} outside [0,1]; clamping")
             sub_scores[name] = max(0.0, min(1.0, val))
 
-    heuristic_score = round(sum(sub_scores.values()) / len(sub_scores), 4)
+    print(
+        f"[DEBUG] Sub-scores:"
+        f" vocab={sub_scores['vocab_marker_density']:.4f},"
+        f" struct={sub_scores['structural_opener_patterns']:.4f},"
+        f" specificity={sub_scores['specificity_density']:.4f},"
+        f" uniformity={sub_scores['sentence_length_uniformity']:.4f}"
+    )
+
+    heuristic_score = round(
+        sum(_SUB_FEATURE_WEIGHTS[k] * sub_scores[k] for k in _SUB_FEATURE_WEIGHTS),
+        4,
+    )
+    print(f"[DEBUG] heuristic_score={heuristic_score:.4f} (weights 30/25/30/15)")
 
     return {
         "heuristic_score": heuristic_score,

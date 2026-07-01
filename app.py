@@ -52,12 +52,20 @@ def submit():
     heuristic_result = compute_heuristic_score(content)
     heuristic_score = heuristic_result["heuristic_score"]
 
-    # --- Cost gate ---
-    llm_attempted = heuristic_score >= config.HEURISTIC_GATE_THRESHOLD
-    if not llm_attempted:
+    # --- Cost gate (two-sided) ---
+    lower_gate_closed = heuristic_score < config.HEURISTIC_GATE_THRESHOLD
+    upper_gate_closed = heuristic_score > config.HEURISTIC_AI_GATE_THRESHOLD
+
+    if lower_gate_closed:
         print(
-            f"[INFO] Gate: heuristic_score={heuristic_score:.3f} < "
-            f"{config.HEURISTIC_GATE_THRESHOLD} — LLM call skipped"
+            f"[INFO] Lower gate: heuristic_score={heuristic_score:.3f} < "
+            f"{config.HEURISTIC_GATE_THRESHOLD} — LLM skipped (confident human)"
+        )
+        llm_score = None
+    elif upper_gate_closed:
+        print(
+            f"[INFO] Upper gate: heuristic_score={heuristic_score:.3f} > "
+            f"{config.HEURISTIC_AI_GATE_THRESHOLD} — LLM skipped (confident AI)"
         )
         llm_score = None
     else:
@@ -74,11 +82,13 @@ def submit():
     llm_signal_available = classifier_result["llm_signal_available"]
 
     # --- Label assignment ---
-    if not llm_attempted:
-        # Gate closed: heuristic score below threshold is sufficient evidence of human authorship
+    if lower_gate_closed:
         label = "high_confidence_human"
-        print(f"[INFO] Gate closed (heuristic_score={heuristic_score:.3f}) — label forced to 'high_confidence_human'")
-    elif llm_attempted and llm_score is None:
+        print(f"[INFO] Lower gate closed (heuristic_score={heuristic_score:.3f}) — label forced to 'high_confidence_human'")
+    elif upper_gate_closed:
+        label = "high_confidence_ai"
+        print(f"[INFO] Upper gate closed (heuristic_score={heuristic_score:.3f}) — label forced to 'high_confidence_ai'")
+    elif llm_score is None:
         # LLM was called but all retries failed — insufficient evidence for definitive label
         label = "uncertain"
         print("[INFO] LLM retries exhausted — label forced to 'uncertain'")
@@ -89,7 +99,7 @@ def submit():
     else:
         label = "uncertain"
 
-    llm_failure = llm_attempted and llm_score is None
+    llm_failure = not lower_gate_closed and not upper_gate_closed and llm_score is None
     label_text = generate_label_text(label, final_confidence_score, llm_failure=llm_failure)
 
     print(

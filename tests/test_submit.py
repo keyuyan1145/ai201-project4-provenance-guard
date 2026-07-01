@@ -351,3 +351,52 @@ def test_label_text_does_not_include_llm_failure_note_when_gate_closed(client, m
     monkeypatch.setattr("app.compute_heuristic_score", lambda t: _heuristic_stub(0.05))
     data = post_json(client, VALID_BODY).get_json()
     assert "unavailable" not in data["label_text"].lower()
+
+
+# ---------------------------------------------------------------------------
+# Upper gate (heuristic > 0.85) — forces high_confidence_ai, skips LLM
+# ---------------------------------------------------------------------------
+
+def test_upper_gate_forces_high_confidence_ai_label(client, monkeypatch):
+    # heuristic above 0.85 → label forced to high_confidence_ai without calling LLM
+    monkeypatch.setattr("app.compute_heuristic_score", lambda t: _heuristic_stub(0.90))
+    data = post_json(client, VALID_BODY).get_json()
+    assert data["label"] == "high_confidence_ai"
+
+
+def test_upper_gate_llm_score_is_null(client, monkeypatch):
+    # LLM is skipped when upper gate fires — response must show llm_score: null
+    monkeypatch.setattr("app.compute_heuristic_score", lambda t: _heuristic_stub(0.90))
+    data = post_json(client, VALID_BODY).get_json()
+    assert data["llm_score"] is None
+
+
+def test_upper_gate_label_text_mentions_ai_authorship(client, monkeypatch):
+    monkeypatch.setattr("app.compute_heuristic_score", lambda t: _heuristic_stub(0.90))
+    data = post_json(client, VALID_BODY).get_json()
+    assert "ai authorship" in data["label_text"].lower()
+
+
+def test_upper_gate_label_text_no_llm_failure_note(client, monkeypatch):
+    # LLM was never attempted → failure note must NOT appear
+    monkeypatch.setattr("app.compute_heuristic_score", lambda t: _heuristic_stub(0.90))
+    data = post_json(client, VALID_BODY).get_json()
+    assert "unavailable" not in data["label_text"].lower()
+
+
+def test_upper_gate_boundary_at_exactly_threshold_does_not_fire(client, monkeypatch):
+    # heuristic == 0.85 is NOT > 0.85, so the gate should NOT fire and LLM runs normally
+    import config as cfg
+    monkeypatch.setattr("app.compute_heuristic_score", lambda t: _heuristic_stub(cfg.HEURISTIC_AI_GATE_THRESHOLD))
+    data = post_json(client, VALID_BODY).get_json()
+    # LLM mock returns None → label is uncertain (gate open, LLM attempted but failed)
+    assert data["label"] == "uncertain"
+
+
+def test_lower_gate_boundary_at_exactly_threshold_does_not_fire(client, monkeypatch):
+    # heuristic == 0.15 is NOT < 0.15, so the lower gate does NOT fire
+    import config as cfg
+    monkeypatch.setattr("app.compute_heuristic_score", lambda t: _heuristic_stub(cfg.HEURISTIC_GATE_THRESHOLD))
+    data = post_json(client, VALID_BODY).get_json()
+    # LLM mock returns None → label is uncertain (gate open, LLM attempted but failed)
+    assert data["label"] == "uncertain"

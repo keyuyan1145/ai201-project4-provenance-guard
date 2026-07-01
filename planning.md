@@ -11,16 +11,31 @@ A backend classification system that accepts text submissions, runs a multi-sign
 ### Signal 1 — Statistical Heuristics
 **Runs first. Always executes. Acts as a cost gate.**
 
-Four independent sub-features run in parallel via `ThreadPoolExecutor`, then their scores are averaged equally into a single `heuristic_score` (float, 0.0–1.0, where 1.0 = strongly AI-like).
+Four independent sub-features run in parallel via `ThreadPoolExecutor`, then combined via **weighted average** into a single `heuristic_score` (float, 0.0–1.0, where 1.0 = strongly AI-like).
 
-| Sub-feature | What it measures | AI indicator |
+| Sub-feature | Weight | What it measures | AI indicator |
+|---|---|---|---|
+| **AI Vocabulary Marker Density** | **30%** | Frequency of words/phrases statistically overrepresented in LLM output, normalized per 100 words. Words: `delve, certainly, straightforward, robust, seamless, nuanced, comprehensive, leverage, crucial, notably, invaluable, pivotal`. Phrases: `it is worth noting, in conclusion, it's important to, in today's, of course`. Starters: `Moreover, Furthermore, Additionally` | High density → AI |
+| **Structural Opener Patterns** | **25%** | Fraction of sentences beginning with a transitional word: `However, Therefore, In addition, As a result, For example, In contrast, Overall, To summarize`. AI models over-use explicit logical signposting. | High fraction → AI |
+| **Specificity and Concrete Details** | **30%** | Density of concrete anchors (numbers, percentages, mid-sentence proper nouns, named entities) per word count. AI text is abstract and generic; human text uses specific dates, figures, and names. Score = 1 − (anchor density / 0.10); saturates to 0.0 at 1 anchor per 10 words. | Low specificity → AI |
+| **Sentence Length Uniformity** | **15%** | Standard deviation of per-sentence word counts, inverted and normalized. AI models produce rhythmically regular prose. | Low variance → AI |
+
+**Weight rationale:** Weights were calibrated for the typical submission length of this system — short prose under 150 words. At that length, two of the four sub-features become unreliable:
+
+- **Punctuation range** was removed entirely. Short texts rarely use more than two or three punctuation types regardless of authorship, so the signal is nearly always the same and carries no discriminative power. It was replaced with **Specificity and Concrete Details**, which detects the presence or absence of concrete anchors (numbers, names, dates) and works at any length.
+- **Sentence length uniformity** receives the lowest weight (15%) because a short passage seldom contains more than four or five sentences. With that few data points, the coefficient of variation is noisy and a single outlier sentence can dominate the score.
+- **Structural opener patterns** receives a reduced weight (25%) for the same reason: with few sentences, one opener-starting sentence inflates the fraction disproportionately. The signal is still useful but less reliable than in longer documents.
+- **AI vocabulary density** and **Specificity and Concrete Details** each receive the highest weight (30%) because both operate at the word level — they pick up markers regardless of how many sentences are present and remain equally informative whether the text is 50 words or 500 words.
+
+**Gate logic:** The heuristic score acts as a two-sided gate before Signal 2 runs:
+
+| Condition | Action | Forced label |
 |---|---|---|
-| **AI Vocabulary Marker Density** | Frequency of words/phrases statistically overrepresented in LLM output, normalized per 100 words. Words: `delve, certainly, straightforward, robust, seamless, nuanced, comprehensive, leverage, crucial, notably, invaluable, pivotal`. Phrases: `it is worth noting, in conclusion, it's important to, in today's, of course`. Starters: `Moreover, Furthermore, Additionally` | High density → AI |
-| **Sentence Length Uniformity** | Standard deviation of per-sentence word counts, inverted and normalized. AI models produce rhythmically regular prose. | Low variance → AI |
-| **Punctuation Range** | Count of distinct punctuation types used beyond period/comma (em-dash, ellipsis, parentheses, `!`, `?`, `;`, `:`). Human writers reach for a wider variety. | Narrow range → AI |
-| **Structural Opener Patterns** | Fraction of sentences beginning with a transitional word: `However, Therefore, In addition, As a result, For example, In contrast, Overall, To summarize`. AI models over-use explicit logical signposting. | High fraction → AI |
+| `heuristic_score < 0.15` | LLM **skipped** — strong human evidence across all surface features | `high_confidence_human` |
+| `heuristic_score > 0.85` | LLM **skipped** — strong AI evidence across all surface features | `high_confidence_ai` |
+| `0.15 ≤ heuristic_score ≤ 0.85` | LLM runs normally | Determined by dual-signal combination |
 
-**Gate logic:** If `heuristic_score < 0.25`, the text is strongly human-leaning across all surface measures. Signal 2 is **skipped entirely** to avoid unnecessary API cost. The classifier proceeds on heuristic evidence only.
+Both extremes bypass the API call entirely, eliminating cost where the heuristics already give a decisive answer.
 
 **Output:** `heuristic_score` — float 0.0–1.0
 

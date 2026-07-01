@@ -7,8 +7,8 @@ to-end including the short-text cap and the parallel execution path.
 """
 import config
 from pipeline.heuristic_signal import (
-    _score_punctuation_range,
     _score_sentence_length_uniformity,
+    _score_specificity_density,
     _score_structural_openers,
     _score_vocab_marker_density,
     compute_heuristic_score,
@@ -37,6 +37,13 @@ HUMAN_TEXT = (
     "category, which is honestly kind of fair. Anyway we ended up just dropping it. "
     "Super silly debate but it was a good time overall. I have had this conversation before and "
     "it never goes anywhere productive. Some questions just do not have clear answers I guess."
+)
+
+# Rich in specific details: numbers, named entities — strongly human-like for specificity
+SPECIFIC_TEXT = (
+    "In 2023, Google announced 3 new products at their annual event in San Francisco. "
+    "The first product cost $299 and shipped on March 15 to over 50 countries. "
+    "According to CEO Sundar Pichai, revenue grew 12% to $76 billion in Q3."
 )
 
 
@@ -116,31 +123,54 @@ def test_uniformity_in_range_for_all_sample_texts():
 
 
 # ---------------------------------------------------------------------------
-# _score_punctuation_range
+# _score_specificity_density
 # ---------------------------------------------------------------------------
 
-def test_punctuation_range_is_one_with_no_special_characters():
-    text = "This is a plain sentence. And another one here. No special chars at all."
-    assert _score_punctuation_range(text) == 1.0
+def test_specificity_density_is_one_when_no_concrete_markers():
+    # Purely abstract text with no numbers or mid-sentence proper nouns
+    text = (
+        "It is worth noting that a comprehensive approach leverages robust frameworks "
+        "to ensure seamless integration across all domains and use cases."
+    )
+    score = _score_specificity_density(text)
+    assert score == 1.0
 
 
-def test_punctuation_range_is_zero_with_four_or_more_special_types():
-    # ?, !, (, ), :, —, ;, … → 8 distinct types → score = 0.0
-    text = "Really? Yes! But (maybe) not: here — and there; ever…"
-    assert _score_punctuation_range(text) == 0.0
+def test_specificity_density_low_for_text_rich_in_numbers_and_names():
+    # Dense with numbers and proper nouns — should score near 0
+    score = _score_specificity_density(SPECIFIC_TEXT)
+    assert score < 0.5
 
 
-def test_punctuation_range_partial_with_two_special_types():
-    # One "?" → 1 type → score = 1.0 - 1/4 = 0.75
-    text = "Is this right? Yes indeed."
-    score = _score_punctuation_range(text)
+def test_specificity_density_zero_at_saturation():
+    # Extreme case: half the words are numbers — well above 10% threshold
+    text = "John bought 100 items at 50 percent off in Paris on March 15 2023."
+    score = _score_specificity_density(text)
+    assert score == 0.0
+
+
+def test_specificity_density_partial_with_one_number():
+    # One number in ~15 words → density ~0.07 → score > 0 but < 1
+    text = "The project took 3 months to complete and was well received by the team."
+    score = _score_specificity_density(text)
     assert 0.0 < score < 1.0
 
 
-def test_punctuation_range_in_range_for_all_sample_texts():
-    for text in [AI_TEXT, HUMAN_TEXT, "Hello world."]:
-        score = _score_punctuation_range(text)
-        assert 0.0 <= score <= 1.0, f"Out of [0,1]: {score!r}"
+def test_specificity_density_returns_half_for_empty_text():
+    assert _score_specificity_density("") == 0.5
+
+
+def test_specificity_density_in_range_for_all_sample_texts():
+    for text in [AI_TEXT, HUMAN_TEXT, SPECIFIC_TEXT, "Hello world."]:
+        score = _score_specificity_density(text)
+        assert 0.0 <= score <= 1.0, f"Out of [0,1]: {score!r} for {text[:40]!r}"
+
+
+def test_ai_text_scores_higher_specificity_density_than_specific_text():
+    # AI_TEXT has no concrete anchors; SPECIFIC_TEXT is full of them
+    ai = _score_specificity_density(AI_TEXT)
+    specific = _score_specificity_density(SPECIFIC_TEXT)
+    assert ai > specific
 
 
 # ---------------------------------------------------------------------------
@@ -197,9 +227,9 @@ def test_sub_scores_dict_contains_all_four_feature_keys():
     result = compute_heuristic_score("Some sample text.")
     expected = {
         "vocab_marker_density",
-        "sentence_length_uniformity",
-        "punctuation_range",
         "structural_opener_patterns",
+        "specificity_density",
+        "sentence_length_uniformity",
     }
     assert set(result["sub_scores"].keys()) == expected
 
@@ -214,9 +244,16 @@ def test_all_sub_scores_in_range():
         assert 0.0 <= val <= 1.0, f"Sub-score {name}={val} outside [0,1]"
 
 
-def test_heuristic_score_is_mean_of_sub_scores():
+def test_heuristic_score_is_weighted_sum_of_sub_scores():
     result = compute_heuristic_score(AI_TEXT)
-    expected = round(sum(result["sub_scores"].values()) / 4, 4)
+    ss = result["sub_scores"]
+    expected = round(
+        ss["vocab_marker_density"] * 0.30
+        + ss["structural_opener_patterns"] * 0.25
+        + ss["specificity_density"] * 0.30
+        + ss["sentence_length_uniformity"] * 0.15,
+        4,
+    )
     assert result["heuristic_score"] == expected
 
 
@@ -241,11 +278,10 @@ def test_ai_text_has_higher_vocab_density_than_human():
     assert ai > human
 
 
-def test_human_text_has_lower_punctuation_range_score_than_plain_text():
-    # HUMAN_TEXT contains em-dash and ! so it should score lower than plain AI text
-    human = compute_heuristic_score(HUMAN_TEXT)["sub_scores"]["punctuation_range"]
-    plain_ai = compute_heuristic_score(AI_TEXT)["sub_scores"]["punctuation_range"]
-    assert plain_ai >= human
+def test_ai_text_has_higher_structural_openers_than_human():
+    ai = compute_heuristic_score(AI_TEXT)["sub_scores"]["structural_opener_patterns"]
+    human = compute_heuristic_score(HUMAN_TEXT)["sub_scores"]["structural_opener_patterns"]
+    assert ai > human
 
 
 # ---------------------------------------------------------------------------
