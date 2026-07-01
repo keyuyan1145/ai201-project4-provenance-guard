@@ -51,6 +51,7 @@ def submit():
     # --- Signal 1: Statistical Heuristics ---
     heuristic_result = compute_heuristic_score(content)
     heuristic_score = heuristic_result["heuristic_score"]
+    word_count = heuristic_result["word_count"]
 
     # --- Cost gate (two-sided) ---
     lower_gate_closed = heuristic_score < config.HEURISTIC_GATE_THRESHOLD
@@ -75,10 +76,9 @@ def submit():
             print("[INFO] LLM signal unavailable after all retries — single-signal fallback")
 
     # --- Classifier ---
-    classifier_result = classify(heuristic_score, llm_score)
+    classifier_result = classify(heuristic_score, llm_score, word_count)
     weighted_score = classifier_result["weighted_score"]
     signal_agreement = classifier_result["signal_agreement"]
-    final_confidence_score = classifier_result["final_confidence_score"]
     llm_signal_available = classifier_result["llm_signal_available"]
 
     # --- Label assignment ---
@@ -92,20 +92,19 @@ def submit():
         # LLM was called but all retries failed — insufficient evidence for definitive label
         label = "uncertain"
         print("[INFO] LLM retries exhausted — label forced to 'uncertain'")
-    elif weighted_score >= config.AI_SCORE_THRESHOLD and final_confidence_score >= config.CONFIDENCE_THRESHOLD:
+    elif weighted_score >= config.AI_SCORE_THRESHOLD:
         label = "high_confidence_ai"
-    elif weighted_score <= config.HUMAN_SCORE_THRESHOLD and final_confidence_score >= config.CONFIDENCE_THRESHOLD:
+    elif weighted_score <= config.HUMAN_SCORE_THRESHOLD:
         label = "high_confidence_human"
     else:
         label = "uncertain"
 
     llm_failure = not lower_gate_closed and not upper_gate_closed and llm_score is None
-    label_text = generate_label_text(label, final_confidence_score, llm_failure=llm_failure)
+    label_text = generate_label_text(label, weighted_score, llm_failure=llm_failure)
 
     print(
         f"[INFO] Label assigned: variant={label},"
         f" weighted_score={weighted_score:.3f},"
-        f" final_confidence={final_confidence_score:.3f},"
         f" llm_signal_available={llm_signal_available}"
     )
 
@@ -121,7 +120,7 @@ def submit():
         "timestamp": timestamp,
         "text": content,
         "attribution": label,
-        "confidence": final_confidence_score,
+        "confidence": weighted_score,
         "heuristic_score": heuristic_score,
         "llm_score": llm_score,
         "agreement_score": signal_agreement,
@@ -132,9 +131,9 @@ def submit():
     return jsonify({
         "label_id": label_id,
         "content_id": label_id,
+        "text": content,
         "weighted_score": weighted_score,
-        "final_confidence_score": final_confidence_score,
-        "attribution": final_confidence_score,
+        "attribution": weighted_score,
         "label": label,
         "label_text": label_text,
         "llm_score": llm_score,

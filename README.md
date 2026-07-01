@@ -42,8 +42,7 @@ flask run
   "label": "uncertain",
   "label_text": "The origin of this content is unclear...",
   "weighted_score": 0.42,
-  "final_confidence_score": 0.18,
-  "attribution": 0.18,
+  "attribution": 0.42,
   "heuristic_score": 0.42,
   "llm_score": 0.39,
   "agreement_score": 0.97

@@ -73,6 +73,34 @@ Four computed fields feed into the final output:
 
 ---
 
+### Update — Adaptive Confidence Scoring (v2)
+
+> **What changed:** The original `raw_confidence × signal_agreement` formula was replaced with a direct adaptive weighted average. The fields `raw_confidence` and the fixed `0.65/0.35` LLM/heuristic split are no longer used in dual-signal mode. The original design is preserved above for traceability.
+
+**New dual-signal formula:**
+
+`final_confidence_score = w_llm × llm_score + w_heuristic × heuristic_score`
+
+Where `w_llm` and `w_heuristic` are chosen by the following priority order:
+
+| Condition | w\_llm | w\_heuristic | Rationale |
+|---|---|---|---|
+| `word_count > 150` | **0.65** | **0.35** | Longer texts give heuristics more data points to work with, making the non-LLM signal more stable and worth a higher share. |
+| `\|llm − heuristic\| > 0.40` | **0.85** | **0.15** | When the two signals strongly disagree, the LLM's deeper semantic read is given almost full trust. The heuristics are surface-level and more likely to be misleading when they diverge from the LLM. |
+| otherwise | **0.70** | **0.30** | Standard case: short text (≤ 150 words) with moderate signal agreement. LLM still dominates but heuristics contribute meaningfully. |
+
+**Why LLM always gets the higher weight:**
+
+The four heuristic sub-features primarily answer *how the text is written* — sentence openers, vocabulary markers, specificity of detail, sentence length variation. These are stylistic surface cues. The LLM evaluates *what the text means* — rhetorical structure, semantic coherence, whether the ideas follow AI-typical argumentation patterns. Semantic analysis is a more comprehensive signal.
+
+The endpoint is also designed for short prose under 150 words. In that range the non-LLM features are less stable: with few sentences, sentence-length uniformity and structural-opener fraction are noisy; even vocabulary density and specificity have limited data. The LLM is comparatively less affected by text length. These numbers are intentionally approximate — with more labeled test data the weights can be empirically tuned.
+
+**Label assignment (updated):** `final_confidence_score` is now a direct AI probability (0–1), so labels are assigned by comparing it against `AI_SCORE_THRESHOLD` (0.65) and `HUMAN_SCORE_THRESHOLD` (0.35) alone. The separate `CONFIDENCE_THRESHOLD` (0.70) check is no longer applied in dual-signal mode.
+
+**Single-signal mode is unchanged.** `final_confidence_score = raw_confidence × 0.75` remains a confidence-penalised measure (not a raw probability). In practice, single-signal texts in the gate range [0.15, 0.85] always produce a `final_confidence_score` below 0.53, which falls in the `uncertain` zone — the two-sided gate handles the decisive human/AI cases at the extremes.
+
+---
+
 ## 2. Uncertainty Representation
 
 > **Question: What does a confidence score of 0.6 mean to your system? How will you map raw signal outputs to a calibrated score? What threshold separates "likely AI" from "uncertain" from "likely human"?**

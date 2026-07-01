@@ -8,7 +8,7 @@ VALID_BODY = {"text": "This is some sample text for testing.", "creator_id": "us
 SUBMIT_URL = "/submit"
 
 EXPECTED_FIELDS = {
-    "label_id", "content_id", "weighted_score", "final_confidence_score",
+    "label_id", "content_id", "text", "weighted_score",
     "attribution", "label", "label_text", "llm_score", "heuristic_score", "agreement_score",
 }
 
@@ -79,14 +79,14 @@ def test_content_id_equals_label_id(client):
     assert data["content_id"] == data["label_id"]
 
 
-def test_attribution_equals_final_confidence_score(client):
+def test_attribution_equals_weighted_score(client):
     data = post_json(client, VALID_BODY).get_json()
-    assert data["attribution"] == data["final_confidence_score"]
+    assert data["attribution"] == data["weighted_score"]
 
 
 def test_numeric_score_fields_are_floats(client):
     data = post_json(client, VALID_BODY).get_json()
-    for field in ("weighted_score", "final_confidence_score", "attribution", "heuristic_score"):
+    for field in ("weighted_score", "attribution", "heuristic_score"):
         assert isinstance(data[field], float), f"Expected float for {field}, got {type(data[field])}"
 
 
@@ -97,7 +97,7 @@ def test_llm_score_is_null_in_single_signal_mode(client):
 
 def test_score_fields_are_in_zero_to_one_range(client):
     data = post_json(client, VALID_BODY).get_json()
-    for field in ("weighted_score", "final_confidence_score", "attribution", "heuristic_score"):
+    for field in ("weighted_score", "attribution", "heuristic_score"):
         assert 0.0 <= data[field] <= 1.0, f"{field}={data[field]} is outside [0, 1]"
 
 
@@ -135,14 +135,11 @@ def test_weighted_score_equals_heuristic_score_without_llm(client):
     assert data["weighted_score"] == data["heuristic_score"]
 
 
-def test_final_confidence_score_is_derived_from_heuristic(client):
-    # final_confidence_score = raw_confidence * SINGLE_SIGNAL_MULTIPLIER
-    # raw_confidence = 2 * |weighted_score - 0.5|
-    import config
-    data = post_json(client, {"text": _AI_TEXT, "creator_id": "u1"}).get_json()
-    ws = data["weighted_score"]
-    expected_fc = round(2 * abs(ws - 0.5) * config.SINGLE_SIGNAL_MULTIPLIER, 4)
-    assert data["final_confidence_score"] == expected_fc
+def test_weighted_score_equals_heuristic_score_in_single_signal_gate(client, monkeypatch):
+    # When gate fires (no LLM), weighted_score == heuristic_score
+    monkeypatch.setattr("app.compute_heuristic_score", lambda t: _heuristic_stub(0.42))
+    data = post_json(client, VALID_BODY).get_json()
+    assert data["weighted_score"] == 0.42
 
 
 # ---------------------------------------------------------------------------
@@ -287,7 +284,7 @@ def test_label_text_is_a_non_empty_string(client):
 
 def test_label_text_contains_confidence_percentage(client):
     data = post_json(client, VALID_BODY).get_json()
-    pct = str(round(data["final_confidence_score"] * 100))
+    pct = str(round(data["weighted_score"] * 100))
     assert pct + "%" in data["label_text"]
 
 
